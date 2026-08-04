@@ -17,3 +17,7 @@ output "people_table_name" {
 output "appearances_table_name" {
   value = aws_dynamodb_table.appearances.name
 }
+
+output "api_url" {
+  value = aws_apigatewayv2_stage.default.invoke_url
+}
