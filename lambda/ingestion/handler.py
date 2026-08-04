@@ -4,6 +4,7 @@ import hashlib
 from datetime import datetime, timezone
 from urllib.parse import unquote_plus
 from io import BytesIO
+from decimal import Decimal
 
 import boto3
 from botocore.exceptions import ClientError
@@ -16,11 +17,15 @@ rek = boto3.client("rekognition")
 PHOTOS_TABLE_NAME = os.environ["PHOTOS_TABLE"]
 THUMBS_BUCKET = os.environ["PROCESSED_BUCKET"]
 THUMBS_PREFIX = "faces-thumbs/"
+PEOPLE_TABLE_NAME = os.environ.get("PEOPLE_TABLE")
+APPEARANCES_TABLE_NAME = os.environ.get("APPEARANCES_TABLE")
 
 collection_id = os.environ["REKOGNITION_COLLECTION"]
 threshold = float(os.environ.get("FACE_MATCH_THRESHOLD", "95"))
 
 photos_table = ddb.Table(PHOTOS_TABLE_NAME)
+people_table = ddb.Table(PEOPLE_TABLE_NAME)
+appearances_table = ddb.Table(APPEARANCES_TABLE_NAME)
 
 
 def make_photo_id(bucket: str, key: str) -> str:
@@ -49,6 +54,53 @@ def bbox_to_pixels(bbox: dict, img_w: int, img_h: int):
     x2 = max(x2, x1 + 1)
     y2 = max(y2, y1 + 1)
     return x1, y1, x2, y2
+
+
+def as_decimal_bbox(bbox: dict) -> dict:
+    return {
+        "Left": Decimal(str(bbox.get("Left", 0.0))),
+        "Top": Decimal(str(bbox.get("Top", 0.0))),
+        "Width": Decimal(str(bbox.get("Width", 0.0))),
+        "Height": Decimal(str(bbox.get("Height", 0.0))),
+    }
+
+def upsert_person(person_id: str, rep_thumb_key: str, created_at: str):
+    people_table.update_item(
+        Key={"person_id": person_id},
+        UpdateExpression=(
+            "SET createdAt = if_not_exists(createdAt, :ca), "
+            "repThumbKey = if_not_exists(repThumbKey, :rt) "
+            "ADD photoCount :inc"
+        ),
+        ExpressionAttributeValues={
+            ":ca": created_at,
+            ":rt": rep_thumb_key,
+            ":inc": Decimal(1),
+        },
+    )
+
+def write_appearance(
+    person_id: str,
+    photo_id: str,
+    photo_bucket: str,
+    photo_key: str,
+    thumb_key: str,
+    bbox: dict,
+    confidence: float | None,
+):
+    item = {
+        "person_id": person_id,
+        "photo_id": photo_id,
+        "photoBucket": photo_bucket,
+        "photoKey": photo_key,
+        "thumbKey": thumb_key,
+        "boundingBox": as_decimal_bbox(bbox),
+        "confidence": confidence
+    }
+    if confidence is not None:
+        item["confidence"] = Decimal(str(confidence))
+
+    appearances_table.put_item(Item=item)
 
 
 def lambda_handler(event, context):
@@ -123,6 +175,7 @@ def lambda_handler(event, context):
 
         for idx, fd in enumerate(face_details, start=1):
             bbox = fd.get("BoundingBox", {})
+            confidence = fd.get("Confidence") 
             x1, y1, x2, y2 = bbox_to_pixels(bbox, img_w, img_h)
 
             face_im = im.crop((x1, y1, x2, y2))
@@ -174,7 +227,27 @@ def lambda_handler(event, context):
             )
             thumb_keys.append(thumb_key)
 
+            # increment photoCount (for "most frequent" People grid)
+            # set repThumbKey once
+            upsert_person(
+                person_id=person_id,
+                rep_thumb_key=thumb_key,
+                created_at=uploaded_at,
+            )
+
+            # record that this person appears in this photo
+            write_appearance(
+                person_id=person_id,
+                photo_id=photo_id,
+                photo_bucket=bucket,
+                photo_key=key,
+                thumb_key=thumb_key,
+                bbox=bbox,
+                confidence=confidence,
+            )
+
         print(f"Thumbnails: uploaded {len(thumb_keys)} for photo_id={photo_id}")
+        print(f"Wrote Persons/Appearances for photoId={photo_id}")
 
         photos_table.update_item(
             Key={"photo_id": photo_id},
