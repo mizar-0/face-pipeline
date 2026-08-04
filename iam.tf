@@ -40,6 +40,7 @@ data "aws_iam_policy_document" "ingestion_permissions" {
     actions = [
       "dynamodb:PutItem",
       "dynamodb:GetItem",
+      "dynamodb:UpdateItem",
       "dynamodb:Query"
     ]
     resources = [
