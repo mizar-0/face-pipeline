@@ -1,4 +1,6 @@
-
+# --- Trust policy: WHO can assume this role ---
+# Same idea as the ingestion role's trust policy -- the Lambda service
+# itself is the only thing allowed to assume this identity.
 data "aws_iam_policy_document" "api_lambda_trust" {
   statement {
     effect  = "Allow"
@@ -37,13 +39,18 @@ data "aws_iam_policy_document" "api_permissions" {
     ]
   }
 
-  # Needed to generate presigned URLs for thumbnails -- generating a
-  # presigned URL is a local SDK operation, but the calling identity's
-  # permissions are what the URL is ultimately allowed to do once used.
+  # Needed to generate presigned URLs for thumbnails
   statement {
     effect    = "Allow"
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.processed_photos.arn}/*"]
+  }
+
+  # Needed to generate presigned upload URLs for new photos
+  statement {
+    effect    = "Allow"
+    actions   = ["s3:PutObject"]
+    resources = ["${aws_s3_bucket.raw_photos.arn}/*"]
   }
 }
 

@@ -19,3 +19,6 @@ Thumbs.db
 
 # Lambda Layers
 lambda_layers/
+
+# test folder
+test/

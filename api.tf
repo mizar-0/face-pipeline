@@ -23,6 +23,7 @@ resource "aws_lambda_function" "api" {
       APPEARANCES_TABLE  = aws_dynamodb_table.appearances.name
       PHOTOS_TABLE       = aws_dynamodb_table.photos.name
       PROCESSED_BUCKET   = aws_s3_bucket.processed_photos.bucket
+      RAW_BUCKET         = aws_s3_bucket.raw_photos.bucket
     }
   }
 }
@@ -54,6 +55,12 @@ resource "aws_apigatewayv2_route" "get_people" {
 resource "aws_apigatewayv2_route" "get_person_photos" {
   api_id    = aws_apigatewayv2_api.api.id
   route_key = "GET /people/{person_id}/photos"
+  target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
+}
+
+resource "aws_apigatewayv2_route" "post_uploads" {
+  api_id    = aws_apigatewayv2_api.api.id
+  route_key = "POST /uploads"
   target    = "integrations/${aws_apigatewayv2_integration.api_lambda.id}"
 }
 

@@ -1,5 +1,6 @@
 import json
 import os
+import uuid
 from decimal import Decimal
 
 import boto3
@@ -10,15 +11,13 @@ s3 = boto3.client("s3")
 
 PEOPLE_TABLE = ddb.Table(os.environ["PEOPLE_TABLE"])
 APPEARANCES_TABLE = ddb.Table(os.environ["APPEARANCES_TABLE"])
-PHOTOS_TABLE = ddb.Table(os.environ["PHOTOS_TABLE"])
 
 THUMBS_BUCKET = os.environ["PROCESSED_BUCKET"]
-PRESIGN_EXPIRY_SECONDS = 3600  # how long each thumbnail URL stays valid
+RAW_BUCKET = os.environ["RAW_BUCKET"]
+PRESIGN_EXPIRY_SECONDS = 3600  # how long each presigned URL stays valid
 
 
 def _json_default(o):
-    # DynamoDB returns numbers as Decimal, which json.dumps can't
-    # serialize on its own -- convert to int/float as appropriate.
     if isinstance(o, Decimal):
         if o % 1 == 0:
             return int(o)
@@ -32,19 +31,19 @@ def _resp(status: int, body: dict):
         "headers": {
             "Content-Type": "application/json",
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET,OPTIONS",
+            "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
         },
         "body": json.dumps(body, default=_json_default),
     }
 
 
-def _presign(key: str):
+def _presign_get(bucket: str, key: str):
     if not key:
         return None
     return s3.generate_presigned_url(
         "get_object",
-        Params={"Bucket": THUMBS_BUCKET, "Key": key},
+        Params={"Bucket": bucket, "Key": key},
         ExpiresIn=PRESIGN_EXPIRY_SECONDS,
     )
 
@@ -66,6 +65,9 @@ def lambda_handler(event, context):
         person_id = parts[1]
         return list_photos_for_person(person_id)
 
+    if method == "POST" and path == "/uploads":
+        return create_upload_url(event)
+
     return _resp(404, {"error": "not found", "path": path})
 
 
@@ -74,8 +76,6 @@ def list_people():
     resp = PEOPLE_TABLE.scan(Limit=200)
     items.extend(resp.get("Items", []))
 
-    # DynamoDB scan can be paginated -- keep pulling pages until we've
-    # gathered enough or there's nothing left
     while "LastEvaluatedKey" in resp and len(items) < 200:
         resp = PEOPLE_TABLE.scan(ExclusiveStartKey=resp["LastEvaluatedKey"], Limit=200)
         items.extend(resp.get("Items", []))
@@ -87,7 +87,7 @@ def list_people():
         people.append({
             "personId": item.get("person_id"),
             "photoCount": item.get("photoCount", 0),
-            "thumbnailUrl": _presign(item.get("repThumbKey")),
+            "thumbnailUrl": _presign_get(THUMBS_BUCKET, item.get("repThumbKey")),
         })
 
     return _resp(200, {"people": people})
@@ -105,16 +105,38 @@ def list_photos_for_person(person_id: str):
         if not photo_id:
             continue
 
-        photo = PHOTOS_TABLE.get_item(Key={"photo_id": photo_id}).get("Item")
-        if not photo:
-            continue
-
         photos.append({
             "photoId": photo_id,
-            "sourceBucket": photo.get("source_bucket"),
-            "sourceKey": photo.get("source_key"),
-            "thumbnailUrl": _presign(appearance.get("thumbKey")),
+            "thumbnailUrl": _presign_get(THUMBS_BUCKET, appearance.get("thumbKey")),
             "confidence": appearance.get("confidence"),
         })
 
     return _resp(200, {"personId": person_id, "photos": photos})
+
+
+def create_upload_url(event):
+    # Client tells us the filename it wants to upload; we generate a
+    # unique key so concurrent/repeat uploads never collide, and hand
+    # back a presigned PUT URL. The client then uploads the file bytes
+    # directly to S3 -- never through this Lambda or API Gateway, which
+    # avoids their payload size limits (10MB / 6MB respectively).
+    try:
+        body = json.loads(event.get("body") or "{}")
+    except json.JSONDecodeError:
+        return _resp(400, {"error": "invalid JSON body"})
+
+    filename = body.get("filename", "upload.jpg")
+    extension = filename.rsplit(".", 1)[-1] if "." in filename else "jpg"
+    upload_key = f"{uuid.uuid4()}.{extension}"
+
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": RAW_BUCKET, "Key": upload_key, "ContentType": "image/jpeg"},
+        ExpiresIn=PRESIGN_EXPIRY_SECONDS,
+    )
+
+    return _resp(200, {
+        "uploadUrl": upload_url,
+        "key": upload_key,
+        "bucket": RAW_BUCKET,
+    })
