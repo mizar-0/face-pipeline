@@ -9,6 +9,16 @@ terraform {
       version = "~> 2.0"
     }
   }
+
+  # State lives in S3, not locally -- so both your machine and CI see
+  # the same "truth" about what's already been created. Without this,
+  # CI has no memory of anything applied locally, and tries to
+  # recreate everything from scratch.
+  backend "s3" {
+    bucket = "facepipeline-tfstate-bucket"
+    key    = "facepipeline/terraform.tfstate"
+    region = "us-east-1"
+  }
 }
 
 provider "aws" {
