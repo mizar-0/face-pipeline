@@ -59,7 +59,7 @@ data "aws_iam_policy_document" "ingestion_permissions" {
       "rekognition:SearchFacesByImage",
       "rekognition:CreateCollection"
     ]
-    resources = ["*"]  # Rekognition doesn't support resource-level scoping for these actions
+    resources = ["*"] # Rekognition doesn't support resource-level scoping for these actions
   }
 }
 

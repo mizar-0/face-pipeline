@@ -1,12 +1,12 @@
 # Tracks which faces appear in which photo
 resource "aws_dynamodb_table" "photos" {
   name         = "${var.project_name}-photos"
-  billing_mode = "PAY_PER_REQUEST"  # no capacity planning needed, pay only per request
+  billing_mode = "PAY_PER_REQUEST" # no capacity planning needed, pay only per request
   hash_key     = "photo_id"
 
   attribute {
     name = "photo_id"
-    type = "S"  # S = string
+    type = "S" # S = string
   }
 }
 

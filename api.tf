@@ -19,11 +19,11 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      PEOPLE_TABLE       = aws_dynamodb_table.people.name
-      APPEARANCES_TABLE  = aws_dynamodb_table.appearances.name
-      PHOTOS_TABLE       = aws_dynamodb_table.photos.name
-      PROCESSED_BUCKET   = aws_s3_bucket.processed_photos.bucket
-      RAW_BUCKET         = aws_s3_bucket.raw_photos.bucket
+      PEOPLE_TABLE      = aws_dynamodb_table.people.name
+      APPEARANCES_TABLE = aws_dynamodb_table.appearances.name
+      PHOTOS_TABLE      = aws_dynamodb_table.photos.name
+      PROCESSED_BUCKET  = aws_s3_bucket.processed_photos.bucket
+      RAW_BUCKET        = aws_s3_bucket.raw_photos.bucket
     }
   }
 }

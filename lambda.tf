@@ -26,10 +26,10 @@ resource "aws_lambda_function" "ingestion" {
   filename         = data.archive_file.ingestion_zip.output_path
   source_code_hash = data.archive_file.ingestion_zip.output_base64sha256
 
-  handler     = "handler.lambda_handler"  # filename.function_name
+  handler     = "handler.lambda_handler" # filename.function_name
   runtime     = "python3.12"
-  timeout     = 30                        # seconds before AWS kills the execution
-  memory_size = 256                       # MB, affects both speed and cost
+  timeout     = 30  # seconds before AWS kills the execution
+  memory_size = 256 # MB, affects both speed and cost
 
   layers = [aws_lambda_layer_version.pillow.arn]
 
